@@ -7,30 +7,52 @@ const app = express();
 app.use(cors({ origin: "*", methods: ["GET", "POST"], credentials: true }));
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"], credentials: true },
-  allowEIO3: true,
+  cors: { origin: "*", methods: ["GET", "POST"] },
   transports: ['websocket', 'polling']
 });
 
-// 💡 [에러 해결 파트] 34개 능력 중 액티브(ACTIVE) 유형에 해당하는 번호 목록을 명확히 명시했습니다.
-const activeIds = [1, 2, 4, 6, 7, 8, 11, 13, 14, 15, 17, 19, 20, 21, 22, 24, 26, 27, 29, 30, 35];
-
-const BASE_ABILITIES = Array.from({ length: 34 }, (_, i) => {
-  const idNum = i + 1;
-  return {
-    id: `ab_${idNum}`,
-    no: idNum,
-    name: `능력 No.${idNum}`,
-    type: activeIds.includes(idNum) ? 'ACTIVE' : 'PASSIVE',
-    desc: `No.${idNum} 능력 판정 메커니즘 가동.`
-  };
-});
+// 34개 정식 일반 능력 및 데이터 정의 (태그 분기 완벽 지원)
+const MASTER_ABILITIES = {
+  1: { no: 1, name: "쿠데타", type: "ACTIVE", tag: "특수", desc: "'왕' 처치. 왕 부재 시 대상을 몰락한 왕으로 변경" },
+  2: { no: 2, name: "저주", type: "ACTIVE", tag: "공격", desc: "지정 대상에게 2턴 후 사망하는 저주 부여" },
+  3: { no: 3, name: "시한폭탄", type: "PASSIVE", tag: "공격", desc: "판정 시 무작위 대상과 함께 동반 사망" },
+  4: { no: 4, name: "기생", type: "ACTIVE", tag: "공격", desc: "지정 대상을 숙주 상태로 변경 (목숨 공유)" },
+  5: { no: 5, name: "왕", type: "PASSIVE", tag: "특수", desc: "판정 시 생존. 1:1 대치 상황 우승 기믹" },
+  6: { no: 6, name: "네크로맨서", type: "ACTIVE", tag: "특수", desc: "사망한 대상의 능력 중 하나를 탈취하여 사용" },
+  7: { no: 7, name: "물귀신", type: "ACTIVE", tag: "공격", desc: "카드 능력 공개 시 지정 대상과 함께 사망" },
+  8: { no: 8, name: "탐정", type: "ACTIVE", tag: "특수", desc: "지정 대상의 카드 능력 공개" },
+  9: { no: 9, name: "범죄자", type: "PASSIVE", tag: "특수", desc: "능력 공개 시 즉시 사망" },
+  10: { no: 10, name: "방패", type: "ACTIVE", tag: "수비", desc: "모든 공격 완벽 방어" },
+  11: { no: 11, name: "암살", type: "ACTIVE", tag: "공격", desc: "판정 시 지정 대상 처치" },
+  12: { no: 12, name: "반사", type: "ACTIVE", tag: "수비", desc: "능력으로 인한 공격만 시전자에게 반사" },
+  13: { no: 13, name: "도둑", type: "ACTIVE", tag: "특수", desc: "지정 대상의 능력을 강탈하여 즉시 사용" },
+  14: { no: 14, name: "게이머", type: "ACTIVE", tag: "공격", desc: "지정 대상과 가위바위보 대결 후 패자 처치" },
+  15: { no: 15, name: "정치인", type: "ACTIVE", tag: "공격", desc: "지정 대상과 1:1 투표 대결 진행 후 패자 처치" },
+  16: { no: 16, name: "영웅", type: "PASSIVE", tag: "특수", desc: "남은 인원이 자신 포함 3명일 때 즉시 우승 [영속]" },
+  17: { no: 17, name: "티라노", type: "ACTIVE", tag: "공격", desc: "자신의 순번에서 ±1인 대상 중 하나 처치" },
+  18: { no: 18, name: "진화", type: "PASSIVE", tag: "특수", desc: "능력 공개 시 현재 턴 수에 지정된 능력 사용 [영속]" },
+  19: { no: 19, name: "도박", type: "ACTIVE", tag: "공격", desc: "주사위 수만큼 순번을 가감해 대상 처치" },
+  20: { no: 20, name: "바이러스", type: "ACTIVE", tag: "공격", desc: "판정 시 지정 대상의 능력 완전 소멸" },
+  21: { no: 21, name: "건달", type: "ACTIVE", tag: "공격", desc: "지정 대상에게 투표권이 영구 소멸하는 협박 부여" },
+  22: { no: 22, name: "부활", type: "ACTIVE", tag: "특수", desc: "사망 시점부터 2턴 경과 후 부활" },
+  23: { no: 23, name: "역관광", type: "PASSIVE", tag: "공격", desc: "자신을 투표한 대상 중 하나를 처치 (4턴 전까지)" },
+  24: { no: 24, name: "팬텀", type: "ACTIVE", tag: "특수", desc: "남은 능력 중 하나를 3턴 동안 허위 거짓 공개" },
+  25: { no: 25, name: "미행", type: "PASSIVE", tag: "특수", desc: "아공간 행적 확인 및 아공간 타겟팅 면제 [아공간]" },
+  26: { no: 26, name: "현상수배", type: "ACTIVE", tag: "특수", desc: "대상 지정 후, 해당 유저 사망 시 능력 변경 [아공간]" },
+  27: { no: 27, name: "예언", type: "ACTIVE", tag: "공격", desc: "3회 내 대상 능력 예측 성공 시 처치 [아공간]" },
+  29: { no: 29, name: "검투사", type: "ACTIVE", tag: "공격/수비", desc: "다음 순서 처치 혹은 피격 시 방어 및 투표권 소멸" },
+  30: { no: 30, name: "차원이동", type: "ACTIVE", tag: "수비", desc: "2턴 동안 아공간 도주 및 상호작용 면제 [아공간]" },
+  31: { no: 31, name: "학살", type: "PASSIVE", tag: "공격", desc: "다음 턴 종료 시 무능력자 1명 확정 처치" },
+  32: { no: 32, name: "아드레날린", type: "PASSIVE", tag: "수비", desc: "사망 공격 1회 방어 후 50% 확률 쇼크사 돌입" },
+  33: { no: 33, name: "회피", type: "PASSIVE", tag: "수비", desc: "피격 시 횟수별 확률(50%->25%->10%)로 공격 회피" },
+  34: { no: 34, name: "시계", type: "PASSIVE", tag: "수비", desc: "공격 1회 방어 및 다음 턴을 이전 턴 수로 회귀 [영속]" },
+  35: { no: 35, name: "시침", type: "ACTIVE", tag: "특수", desc: "능력 공개 시 영속 티어 보유자 1명 추적 공개 [영속]" }
+};
 
 let rooms = {};
 let userToRoom = {};
 
-app.get('/', (req, res) => { res.send('능력투표대전 멀티룸 서버 정상 구동 중'); });
-
+app.get('/', (req, res) => { res.send('능력투표대전 백엔드 동기화 채널 정상 구동 중'); });
 function startRoomTimer(code, seconds, type) {
   const room = rooms[code];
   if (!room) return;
@@ -56,27 +78,35 @@ function handleTimeout(code, type) {
         if (targets.length > 0) room.votes[p.id] = targets[Math.floor(Math.random() * targets.length)].id;
       }
     });
-    tallyVotesLogic(code);
+    tallyVotes(code);
   } else if (type === 'PREDICTION') {
     advanceRound(code);
   }
 }
 
-function tallyVotesLogic(code) {
+function tallyVotes(code) {
   const room = rooms[code];
   const alive = Object.values(room.players).filter(p => !p.isDead);
-  const voteCounts = {};
-  Object.values(room.votes).forEach(t => { voteCounts[t] = (voteCounts[t] || 0) + 1; });
+  let voteCounts = {};
+
+  Object.entries(room.votes).forEach(([voterId, targetId]) => {
+    const weight = room.players[voterId]?.activeArtifact === 'art_2' ? 2 : 1;
+    voteCounts[targetId] = (voteCounts[targetId] || 0) + weight;
+    if (room.players[voterId]) room.players[voterId].activeArtifact = null;
+  });
 
   let max = 0, candidates = [];
   Object.entries(voteCounts).forEach(([id, count]) => {
     if (count > max) { max = count; candidates = [id]; }
-    else if (count === max) { candidates.push(id); }
+    else if (count === max) candidates.push(id);
   });
 
   if (candidates.length > 1 || Object.keys(voteCounts).length === 0) {
-    if (room.gameMode === 'CHAOS') { room.selectedTargets = alive.map(p => p.id); } 
-    else { room.selectedTargets = [alive[Math.floor(Math.random() * alive.length)].id]; }
+    if (room.gameMode === 'CHAOS') {
+      room.selectedTargets = alive.map(p => p.id); // 대혼돈 특이점 전원 판정
+    } else {
+      room.selectedTargets = [alive[Math.floor(Math.random() * alive.length)].id];
+    }
   } else {
     room.selectedTargets = candidates;
   }
@@ -103,7 +133,7 @@ io.on('connection', (socket) => {
     const code = String(roomCode).trim().toUpperCase();
     if (!code || rooms[code]) return;
     rooms[code] = {
-      roomCode: code, maxPlayers: parseInt(maxPlayers) || 5, gameMode: gameMode || 'CLASSIC', voteTime: parseInt(voteTime) || 30,
+      roomCode: code, maxPlayers: Math.max(5, Math.min(15, parseInt(maxPlayers) || 5)), gameMode: gameMode || 'CLASSIC', voteTime: parseInt(voteTime) || 30,
       status: 'LOBBY', phase: 'VOTING', round: 1, selectedTargets: [], votes: {}, predictions: {}, hostId: socket.id, players: {}
     };
     joinLogic(socket, code, playerName);
@@ -117,15 +147,10 @@ io.on('connection', (socket) => {
   function joinLogic(socket, code, playerName) {
     const room = rooms[code];
     socket.join(code);
-    userToRoom[socket.id] = code; 
+    userToRoom[socket.id] = code;
     room.players[socket.id] = { id: socket.id, name: playerName, isDead: false, isReady: socket.id === room.hostId, abilities: [], artifacts: [], hp: 15 };
-    
-    // 방 목록 전체 동기화 전송
-    const list = Object.values(rooms).map(r => ({
-      roomCode: r.roomCode, currentPlayers: Object.keys(r.players).length, maxPlayers: r.maxPlayers, status: r.status
-    }));
-    io.emit('room_list', list);
     io.to(code).emit('update_state', room);
+    io.emit('room_list', Object.values(rooms).map(r => ({ roomCode: r.roomCode, currentPlayers: Object.keys(r.players).length, maxPlayers: r.maxPlayers, status: r.status })));
   }
 
   socket.on('toggle_ready', () => {
@@ -141,7 +166,7 @@ io.on('connection', (socket) => {
     const room = rooms[code];
     if (!room || room.hostId !== socket.id) return;
 
-    let deck = [...BASE_ABILITIES].sort(() => Math.random() - 0.5);
+    let deck = Object.values(MASTER_ABILITIES).sort(() => Math.random() - 0.5);
     Object.values(room.players).forEach((p, idx) => {
       p.abilities = room.gameMode === 'DELUXE' ? [deck[idx * 2], deck[idx * 2 + 1]] : [deck[idx]];
       if (room.gameMode === 'CHAOS') p.anonName = `익명 예언자 ${idx + 1}`;
@@ -157,7 +182,7 @@ io.on('connection', (socket) => {
     room.votes[socket.id] = targetId;
     const alive = Object.values(room.players).filter(p => !p.isDead);
     const required = room.phase === 'LAST_STAND' ? Object.values(room.players).filter(p => p.isDead).length : alive.length;
-    if (Object.keys(room.votes).length === required) { clearInterval(room.timerId); tallyVotesLogic(code); }
+    if (Object.keys(room.votes).length === required) { clearInterval(room.timerId); tallyVotes(code); }
     else { io.to(code).emit('update_state', room); }
   });
 
@@ -166,11 +191,13 @@ io.on('connection', (socket) => {
     const room = rooms[code];
     if (!room) return;
     const p = room.players[socket.id];
+    
     if (actionType === 'PROVE') {
-      if (p.abilities[cardIndex || 0].type === 'ACTIVE') {
-        p.abilities[cardIndex || 0] = { id: "none", name: "무능력자", type: "NONE", desc: "능력 소멸." };
+      let currentAbility = p.abilities[cardIndex || 0];
+      if (currentAbility.type === 'ACTIVE') {
+        p.abilities[cardIndex || 0] = { no: 0, name: "무능력자", type: "NONE", desc: "권능 소멸" };
       }
-    } else { p.isDead = true; p.abilities = []; }
+    } else { p.isDead = true; }
 
     room.selectedTargets = room.selectedTargets.filter(id => id !== socket.id);
     if (room.selectedTargets.length === 0) {
@@ -185,4 +212,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => console.log(`🚀 서버 정상 구동 중: ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 백엔드 포트 가동: ${PORT}`));
