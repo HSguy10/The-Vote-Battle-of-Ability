@@ -116,9 +116,65 @@ function tallyVotes(code) {
 
 function advanceRound(code) {
   const room = rooms[code];
-  room.round += 1; room.votes = {}; room.phase = 'VOTING';
+  if (!room) return;
+  
+  room.round += 1; 
+  room.votes = {}; 
+  room.phase = 'VOTING';
+  
   io.to(code).emit('update_state', room);
   startRoomTimer(code, room.voteTime, 'VOTING');
+
+  // ⭐ [AI 자동 투표 기동] 2초 뒤 살아있는 AI 봇들이 자동으로 투표권을 행사하게 만듦
+  setTimeout(() => {
+    if (!rooms[code] || rooms[code].phase !== 'VOTING') return;
+    const currentRoom = rooms[code];
+    const alive = Object.values(currentRoom.players).filter(p => !p.isDead);
+    
+    Object.values(currentRoom.players).forEach(p => {
+      if (p.isAI && !p.isDead && !currentRoom.votes[p.id]) {
+        // 자기 자신을 제외한 생존 예언자 중 무작위 1명 저격 (대혼돈 모드면 자신 포함)
+        const targets = alive.filter(t => currentRoom.gameMode === 'CHAOS' || t.id !== p.id);
+        if (targets.length > 0) {
+          currentRoom.votes[p.id] = targets[Math.floor(Math.random() * targets.length)].id;
+        }
+      }
+    });
+
+    // 만약 AI 투표로 인해 전원 투표가 완료되었다면 즉시 정산 처리
+    const required = currentRoom.phase === 'LAST_STAND' ? Object.values(currentRoom.players).filter(p => p.isDead).length : alive.length;
+    if (Object.keys(currentRoom.votes).length === required) {
+      if (currentRoom.timerId) clearInterval(currentRoom.timerId);
+      tallyVotesLogic(code);
+    } else {
+        setTimeout(() => {
+  if (!rooms[code] || rooms[code].phase !== 'JUDGEMENT') return;
+  const currentRoom = rooms[code];
+  
+  // 판정대에 올라간 타겟 중 AI가 있다면 자동으로 'PROVE'(증명) 신호를 보냄
+  currentRoom.selectedTargets.forEach(targetId => {
+    const p = currentRoom.players[targetId];
+    if (p && p.isAI) {
+      // AI는 무조건 첫 번째 능력을 안전하게 증명하여 생존함
+      if (p.abilities[0] && p.abilities[0].type === 'ACTIVE') {
+        p.abilities[0] = { id: "none", name: "무능력자", type: "NONE", desc: "능력 소멸." };
+      }
+      currentRoom.selectedTargets = currentRoom.selectedTargets.filter(id => id !== targetId);
+    }
+  });
+
+  // 전원 판정 완료 시 다음 페이즈 연동
+  if (currentRoom.selectedTargets.length === 0) {
+    const alive = Object.values(currentRoom.players).filter(p => !p.isDead);
+    if (alive.length <= 1) { currentRoom.status = 'GAME_OVER'; }
+    else if (alive.length === 2) { currentRoom.phase = 'LAST_STAND'; currentRoom.votes = {}; startRoomTimer(code, currentRoom.voteTime, 'VOTING'); }
+    else { advanceRound(code); }
+  }
+  io.to(code).emit('update_state', currentRoom);
+}, 1500);
+      io.to(code).emit('update_state', currentRoom);
+    }
+  }, 2000);
 }
 
 io.on('connection', (socket) => {
@@ -166,11 +222,38 @@ io.on('connection', (socket) => {
     const room = rooms[code];
     if (!room || room.hostId !== socket.id) return;
 
-    let deck = Object.values(MASTER_ABILITIES).sort(() => Math.random() - 0.5);
+    const currentPlayersArr = Object.values(room.players);
+    const currentCount = currentPlayersArr.length;
+    
+    // ⭐ [AI 자동 참여 핵심 로직] 설정한 최대 인원(maxPlayers)까지 빈 자리를 AI로 자동 채움
+    if (currentCount < room.maxPlayers) {
+      const aiNeeded = room.maxPlayers - currentCount;
+      const aiNames = ["가브리엘AI", "미카엘AI", "라파엘AI", "루시퍼AI", "우리엘AI", "아자젤AI", "메타트론AI", "벨리알AI", "리리스AI", "바알AI", "아스타로트AI"];
+      
+      for (let i = 0; i < aiNeeded; i++) {
+        const aiId = `ai_${Math.random().toString(36).substr(2, 9)}`;
+        const aiName = aiNames[i % aiNames.length] + `(봇_${i+1})`;
+        
+        room.players[aiId] = {
+          id: aiId,
+          name: aiName,
+          isDead: false,
+          isReady: true,
+          isAI: true, // 봇 판별 플래그 추가
+          abilities: [],
+          artifacts: [],
+          hp: 15
+        };
+      }
+    }
+
+    // 34개 고유 능력 셔플 및 분배 (AI 포함 전원 분배)
+    let deck = [...BASE_ABILITIES].sort(() => Math.random() - 0.5);
     Object.values(room.players).forEach((p, idx) => {
       p.abilities = room.gameMode === 'DELUXE' ? [deck[idx * 2], deck[idx * 2 + 1]] : [deck[idx]];
       if (room.gameMode === 'CHAOS') p.anonName = `익명 예언자 ${idx + 1}`;
     });
+
     room.status = 'PLAYING';
     advanceRound(code);
   });
