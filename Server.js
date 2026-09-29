@@ -10,9 +10,12 @@ const server = http.createServer(app);
 // 배포 주소 및 로컬 환경 모두 허용하도록 CORS 설정
 const io = new Server(server, {
   cors: {
-    origin: "*", 
-    methods: ["GET", "POST"]
-  }
+    origin: "*",                      // 모든 주소에서의 접속 허용
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  allowEIO3: true,                    // 구버전 및 다양한 소켓 라이브러리 버전 호환성 허용 (⭐ 핵심)
+  transports: ['websocket', 'polling'] // 통신 안정성 프로토콜 고정
 });
 
 // 카드 데이터 풀
