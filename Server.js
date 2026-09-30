@@ -60,14 +60,33 @@ const EVOLUTION_TABLE = {
 
 app.get('/', (req, res) => { res.send('능력투표대전 34대 코어 AI 시스템 정상 구동 중'); });
 function startRoomTimer(code, seconds, type) {
-  const room = rooms[code]; if (!room) return;
-  if (room.timerId) clearInterval(room.timerId);
+  const room = rooms[code];
+  if (!room) return;
+  
+  if (room.timerId) {
+    clearInterval(room.timerId);
+  }
+  
   room.timeLeft = seconds;
+  
+  // 🚀 매 초마다 시간을 깎고 프론트엔드에 강제 동기화 빔을 쏩니다.
   room.timerId = setInterval(() => {
-    if (!rooms[code]) { clearInterval(room.timerId); return; }
-    room.timeLeft--;
-    io.to(code).emit('timer_update', { timeLeft: room.timeLeft, timerType: type });
-    if (room.timeLeft <= 0) { clearInterval(room.timerId); handleTimeout(code, type); }
+    const currentRoom = rooms[code];
+    if (!currentRoom) {
+      clearInterval(room.timerId);
+      return;
+    }
+    
+    currentRoom.timeLeft--;
+    
+    // 전방위 동기화 패킷 브로드캐스팅
+    io.to(code).emit('timer_update', { timeLeft: currentRoom.timeLeft, timerType: type });
+    io.to(code).emit('update_state', currentRoom);
+    
+    if (currentRoom.timeLeft <= 0) {
+      clearInterval(room.timerId);
+      handleTimeout(code, type);
+    }
   }, 1000);
 }
 
@@ -135,32 +154,48 @@ function resolvePhaseEnd(code) {
 }
 
 function advanceRound(code) {
-  const room = rooms[code]; if (!room) return;
-  room.round += 1; room.votes = {}; room.phase = 'VOTING';
-  Object.values(room.players).forEach(p => {
-    p.abilities.forEach(ab => {
-      if (ab.no === 18) {
-        let textName = EVOLUTION_TABLE[room.round];
-        if (textName) ab.name = `진화 - [${textName}]`;
-        else if (room.round >= 13) ab.name = "진화 - 과잉성장(사용 불가)";
-      }
-    });
-  });
-  io.to(code).emit('update_state', room); startRoomTimer(code, room.voteTime, 'VOTING');
+  const room = rooms[code];
+  if (!room) return;
 
-  setTimeout(() => {
-    if (!rooms[code] || rooms[code].phase !== 'VOTING') return;
-    const currentRoom = rooms[code]; const alive = Object.values(currentRoom.players).filter(p => !p.isDead);
-    Object.values(currentRoom.players).forEach(p => {
-      if (p.isAI && !p.isDead && !currentRoom.votes[p.id]) {
-        const targets = alive.filter(t => currentRoom.gameMode === 'CHAOS' || t.id !== p.id);
-        if (targets.length > 0) currentRoom.votes[p.id] = targets[Math.floor(Math.random() * targets.length)].id;
+  room.round += 1;
+  room.votes = {};
+  room.phase = 'VOTING';
+
+  // No.18 진화 등 라운드 턴 트래킹 권능 갱신
+  Object.values(room.players).forEach(p => {
+    if (p.abilities && Array.isArray(p.abilities)) {
+      p.abilities.forEach(ab => {
+        if (ab.no === 18) {
+          let textName = EVOLUTION_TABLE[room.round];
+          if (textName) ab.name = `진화 - [${textName}]`;
+          else if (room.round >= 13) ab.name = "진화 - 과잉성장(사용 불가)";
+        }
+      });
+    }
+  });
+
+  // 🤖 [AI 봇 자동 조준 엔진 인젝션] 새 라운드 선언 직후 봇들이 투표를 즉시 완료합니다.
+  const alive = Object.values(room.players).filter(p => !p.isDead);
+  Object.values(room.players).forEach(p => {
+    if (p.isAI && !p.isDead) {
+      // 대혼돈 모드가 아니라면 자기 자신을 제외한 생존자 중 한 명 무작위 저격
+      const targets = alive.filter(t => room.gameMode === 'CHAOS' || t.id !== p.id);
+      if (targets.length > 0) {
+        room.votes[p.id] = targets[Math.floor(Math.random() * targets.length)].id;
       }
-    });
-    const required = currentRoom.phase === 'LAST_STAND' ? Object.values(currentRoom.players).filter(p => p.isDead).length : alive.length;
-    if (Object.keys(currentRoom.votes).length === required) { clearInterval(currentRoom.timerId); tallyVotesLogic(code); }
-    else { io.to(code).emit('update_state', currentRoom); }
-  }, 2000);
+    }
+  });
+
+  // 타이머 작동 및 전원 상태 업데이트
+  io.to(code).emit('update_state', room);
+  startRoomTimer(code, room.voteTime, 'VOTING');
+
+  // 만약 방에 봇들이 많아서 플레이어 혼자 투표하면 바로 끝나야 하는 상황 제어
+  const required = room.phase === 'LAST_STAND' ? Object.values(room.players).filter(p => p.isDead).length : alive.length;
+  if (Object.keys(room.votes).length === required) {
+    if (room.timerId) clearInterval(room.timerId);
+    tallyVotesLogic(code);
+  }
 }
 
 io.on('connection', (socket) => {
